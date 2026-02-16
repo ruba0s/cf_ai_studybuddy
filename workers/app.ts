@@ -3,6 +3,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { QuizSession } from './durable-objects/QuizSession';
 import { DocumentProcessor } from './workflows/DocumentProcessor';
+import { createRequestHandler } from "react-router";
+import mammoth from 'mammoth';
 
 export { QuizSession, DocumentProcessor };  // required for Cloudflare to find them
 
@@ -33,20 +35,53 @@ app.post('/api/upload', async (c) => {
     const sessionId = c.req.header('x-session-id');
     if (!sessionId) return c.json({ error: 'Missing x-session-id' }, 400);
 
-    // parse request body
-    const { filename, content } = await c.req.json<{ filename: string; content: string }>();
+    const { filename, content, isBase64 } = await c.req.json<{
+      filename: string;
+      content: string;
+      isBase64: boolean;
+    }>();
+
     if (!content?.trim()) return c.json({ error: 'No content provided' }, 400);
 
-    // generate new material ID
+    let extractedText: string;
+
+    if (isBase64) {
+      const ext = filename.split('.').pop()?.toLowerCase();
+      if (ext !== 'docx') {
+        return c.json({ error: 'Base64 upload only supported for .docx' }, 400);
+      }
+
+      // Decode base64 → ArrayBuffer
+      const binaryStr = atob(content);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+
+      const result = await mammoth.extractRawText({ arrayBuffer: bytes.buffer });
+      extractedText = result.value?.trim();
+
+      if (!extractedText) {
+        return c.json({ error: 'Could not extract text from DOCX' }, 422);
+      }
+    } else {
+      extractedText = content;
+    }
+
     const materialId = crypto.randomUUID();
 
-    // start new Workflow (non-blocking cuz it runs in bg)
     await c.env.DOCUMENT_PROCESSOR.create({
-      params: { sessionId, materialId, filename: filename || 'untitled.txt', content },
+      params: {
+        sessionId,
+        materialId,
+        filename: filename || 'untitled.txt',
+        content: extractedText,
+      },
     });
 
     return c.json({ materialId, status: 'processing' });
   } catch (err) {
+    console.error('Upload error:', err);
     return c.json({ error: (err as Error).message }, 500);
   }
 });
@@ -99,8 +134,15 @@ app.get('/api/progress', async (c) => { // get user's overall quiz progress stat
 
 // Fallthrough to Pages assets
 // TODO: frontend
-app.get('*', async (c) => {
-  return c.env.ASSETS.fetch(c.req.raw);
+app.get("*", (c) => {
+	const requestHandler = createRequestHandler(
+		() => import("virtual:react-router/server-build"),
+		import.meta.env.MODE,
+	);
+
+	return requestHandler(c.req.raw, {
+		cloudflare: { env: c.env, ctx: c.executionCtx },
+	});
 });
 
 export default app;
