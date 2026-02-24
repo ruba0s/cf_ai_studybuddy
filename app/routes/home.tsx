@@ -1,5 +1,6 @@
 import type { Route } from "./+types/home";
 import DocumentUploader from "~/components/DocumentUploader";
+import { useNavigate } from "react-router";
 
 export function meta({}: Route.MetaArgs) {
 	return [
@@ -13,7 +14,12 @@ export function loader({ context }: Route.LoaderArgs) {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
+	const navigate = useNavigate();
 	return (
-		<DocumentUploader/>
+		<DocumentUploader
+		onUploadComplete={(materialId) => {
+			navigate("/quiz");
+		}}
+		/>
 	);
 }
