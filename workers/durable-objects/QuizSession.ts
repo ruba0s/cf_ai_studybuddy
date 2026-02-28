@@ -325,9 +325,43 @@ export class QuizSession extends DurableObject<Env> {
         return Response.json(result);
       }
 
+      // Match /material-status/<materialId> to get material's upload status
+      const statusMatch = url.pathname.match(/^\/material-status\/([^/]+)$/);
+      if (statusMatch && request.method === 'GET') {
+        const materialId = statusMatch[1];
+        const result = await this.getMaterialStatus(materialId);
+        return Response.json(result);
+      }
+
       return new Response('Not found', { status: 404 });
     } catch (err) {
       return Response.json({ error: (err as Error).message }, { status: 500 });
     }
-  }       
+  }
+  
+  async getMaterialStatus(materialId: string): Promise<{
+    materialExists: boolean;
+    questionCount: number;
+    status: 'pending' | 'ready';
+  }> {
+    const materialRows = this.db
+      .exec(`SELECT id FROM materials WHERE id = ?`, materialId)
+      .toArray();
+
+    if (materialRows.length === 0) {
+      return { materialExists: false, questionCount: 0, status: 'pending' };
+    }
+
+    const countRow = this.db
+      .exec(`SELECT COUNT(*) as count FROM questions WHERE material_id = ?`, materialId)
+      .toArray()[0];
+
+    const questionCount = (countRow?.count as number) ?? 0;
+
+    return {
+      materialExists: true,
+      questionCount,
+      status: questionCount > 0 ? 'ready' : 'pending',
+    };
+  }
 }

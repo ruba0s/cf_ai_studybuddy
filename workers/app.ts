@@ -86,6 +86,20 @@ app.post('/api/upload', async (c) => {
   }
 });
 
+// GET /api/status/:materialId
+// Header: x-session-id
+app.get('/api/status/:materialId', async (c) => {
+  try {
+    const stub = getSessionStub(c as any);
+    const materialId = c.req.param('materialId');
+    const res = await stub.fetch(`https://do-internal/material-status/${materialId}`);
+    const data = await res.json();
+    return c.json(data);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
 // GET /api/quiz/next
 // Header: x-session-id
 app.get('/api/quiz/next', async (c) => { // get next quiz question

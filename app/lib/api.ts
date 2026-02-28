@@ -22,6 +22,14 @@ export const api = {
     return data as { materialId: string; status: string };
   },
 
+  getStatus: async (materialId: string): Promise<{ status: 'pending' | 'ready'; questionCount: number }> => {
+    const res = await fetch(`/api/status/${materialId}`, {
+      headers: { 'x-session-id': getSessionId() },
+    });
+    if (!res.ok) throw new Error('Failed to fetch status');
+    return res.json();
+  },
+
   getNextQuestion: async () => {
     const res = await fetch('/api/quiz/next', {
       headers: { 'x-session-id': getSessionId() },
