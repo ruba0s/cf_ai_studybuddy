@@ -146,6 +146,18 @@ app.get('/api/progress', async (c) => { // get user's overall quiz progress stat
   }
 });
 
+// GET /api/quiz/random
+// Header: x-session-id
+app.get('/api/quiz/random', async (c) => {
+  try {
+    const stub = getSessionStub(c as any);
+    const res = await stub.fetch('https://do-internal/random-question');
+    return c.json(await res.json());
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
 // Fallthrough to Pages assets
 // TODO: frontend
 app.get("*", (c) => {

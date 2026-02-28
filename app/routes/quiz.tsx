@@ -1,9 +1,11 @@
 // app/routes/quiz.tsx
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { useQuiz } from '../hooks/useQuiz';
 
 export default function QuizPage() {
   const quiz = useQuiz();
+  const navigate = useNavigate();
 
   useEffect(() => {
     quiz.loadNextQuestion();
@@ -32,6 +34,30 @@ export default function QuizPage() {
             quiz.loadNextQuestion();
           }}
         />
+      );
+    case 'session-complete':
+      return (
+        <div className="flex flex-col items-center gap-6 mt-16">
+          <svg className="w-16 h-16 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <h2 className="text-xl font-semibold text-gray-800">You're all caught up!</h2>
+          <p className="text-sm text-gray-500">No cards are due right now. Come back later, or keep reviewing older cards.</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate('/')}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Done for now
+            </button>
+            <button
+              onClick={quiz.loadRandomOldCard}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700"
+            >
+              Keep reviewing
+            </button>
+          </div>
+        </div>
       );
     case 'finished':
       return <FinishedView onRetry={quiz.loadNextQuestion} />;

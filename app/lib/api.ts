@@ -61,4 +61,13 @@ export const api = {
     if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Failed to get progress');
     return data;
   },
+
+  getRandomOldCard: async () => {
+    const res = await fetch('/api/quiz/random', {
+      headers: { 'x-session-id': getSessionId() },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Failed to fetch card');
+    return data;
+  },
 };

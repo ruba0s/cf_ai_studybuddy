@@ -8,7 +8,8 @@ type QuizStatus =
   | 'showing-question'
   | 'submitting'
   | 'showing-feedback'
-  | 'finished'
+  | 'session-complete'  // due cards exhausted, older cards available
+  | 'finished'          // truly no cards at all
   | 'error';
 
 interface Question {
@@ -38,7 +39,9 @@ interface UseQuizReturn {
   currentCard: SM2Card | null;
   feedback: Feedback | null;
   error: string | null;
+  isReviewingOld: boolean;
   loadNextQuestion: () => Promise<void>;
+  loadRandomOldCard: () => Promise<void>;
   submitAnswer: (answer: string) => Promise<void>;
   resetFeedback: () => void;
 }
@@ -49,6 +52,7 @@ export function useQuiz(): UseQuizReturn {
   const [currentCard, setCurrentCard] = useState<SM2Card | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isReviewingOld, setIsReviewingOld] = useState(false);
 
   const loadNextQuestion = useCallback(async () => {
     try {
@@ -57,9 +61,17 @@ export function useQuiz(): UseQuizReturn {
 
       const data = await api.getNextQuestion();
 
-      // No questions available
-      if (data === null || data.question === null) {
+      // Truly no cards at all
+      if (data === null) {
         setStatus('finished');
+        setCurrentQuestion(null);
+        setCurrentCard(null);
+        return;
+      }
+
+      // Due cards exhausted — let user decide whether to review old cards
+      if ('done' in data) {
+        setStatus('session-complete');
         setCurrentQuestion(null);
         setCurrentCard(null);
         return;
@@ -68,6 +80,29 @@ export function useQuiz(): UseQuizReturn {
       // Validate response shape
       if (!data.question?.id || !data.question?.question || !data.card) {
         throw new Error('Invalid question data received');
+      }
+
+      setCurrentQuestion(data.question);
+      setCurrentCard(data.card);
+      setStatus('showing-question');
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to load question');
+      setStatus('error');
+    }
+  }, []);
+
+  // Called when user clicks "Keep reviewing" after session-complete
+  const loadRandomOldCard = useCallback(async () => {
+    try {
+      setStatus('loading');
+      setIsReviewingOld(true);
+      setError(null);
+
+      const data = await api.getRandomOldCard();
+
+      if (!data) {
+        setStatus('finished');
+        return;
       }
 
       setCurrentQuestion(data.question);
@@ -129,7 +164,9 @@ export function useQuiz(): UseQuizReturn {
     currentCard,
     feedback,
     error,
+    isReviewingOld,
     loadNextQuestion,
+    loadRandomOldCard,
     submitAnswer,
     resetFeedback,
   };

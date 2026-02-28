@@ -61,6 +61,25 @@ export class QuizSession extends DurableObject<Env> {
         `);
     }
 
+    // helper to map database row into a Question object and its corresponding SM2Card metadata
+    private rowToQuestionCard(row: Record<string, unknown>): { question: Question; card: SM2Card } {
+      return {
+        question: {
+          id: row.id as string,
+          materialId: row.material_id as string,
+          question: row.question as string,
+          answer: row.answer as string,
+          difficulty: row.difficulty as Question['difficulty'],
+        },
+        card: {
+          easeFactor: row.ease_factor as number,
+          interval: row.interval_days as number,
+          repetitions: row.repetitions as number,
+          nextReview: row.next_review as number,
+        },
+      };
+    }
+
     // TODO: called by DocumentProcessor Workflow after generating questions
     async storeGeneratedQuestions(
       materialId: string,
@@ -114,50 +133,47 @@ export class QuizSession extends DurableObject<Env> {
     }
 
     // get the next due question (SM-2 scheduled), or a random new one
-    async getNextQuestion(): Promise<{ question: Question; card: SM2Card } | null> {
-        const now = Date.now();
+    async getNextQuestion(): Promise<{ question: Question; card: SM2Card; isDue: boolean; } | { done: true } | null> {
+      const now = Date.now();
 
-        // look for overdue questions
-        const due = this.db.exec(
-            `SELECT q.*, c.ease_factor, c.interval_days, c.repetitions, c.next_review
-            FROM questions q
-            JOIN sm2_cards c ON q.id = c.question_id
-            WHERE c.next_review <= ?
-            ORDER BY c.next_review ASC
-            LIMIT 1`,
-            now
-        ).toArray();
+      // check if questions are ready
+      const totalCount = this.db
+        .exec(`SELECT COUNT(*) as count FROM questions`)
+        .toArray()[0]?.count as number ?? 0;
 
-        // fallback: get any question (for first-time sessions)
-        const row =
-            due.length > 0
-            ? due[0]
-            : this.db.exec(
-                `SELECT q.*, c.ease_factor, c.interval_days, c.repetitions, c.next_review
-                FROM questions q
-                JOIN sm2_cards c ON q.id = c.question_id
-                ORDER BY RANDOM()
-                Limit 1`
-            ).toArray()[0];
+      if (totalCount === 0) return null; // still processing
 
-        if (!row) return null;
+      // look for currently due/overdue questions
+      const due = this.db.exec(
+        `SELECT q.*, c.ease_factor, c.interval_days, c.repetitions, c.next_review
+        FROM questions q
+        JOIN sm2_cards c ON q.id = c.question_id
+        WHERE c.next_review <= ?
+        ORDER BY c.next_review ASC
+        LIMIT 1`,
+        now
+      ).toArray();
 
-        const question: Question = {
-            id: row.id as string,
-            materialId: row.material_id as string,
-            question: row.question as string,
-            answer: row.answer as string,
-            difficulty: row.difficulty as Question['difficulty'],
-        };
+      if (due.length > 0) {
+        return { ...this.rowToQuestionCard(due[0]), isDue: true };
+      }
 
-        const card: SM2Card = {
-            easeFactor: row.ease_factor as number,
-            interval: row.interval_days as number,
-            repetitions: row.repetitions as number,
-            nextReview: row.next_review as number,
-        };
+      // no due cards, session complete
+      return { done: true };
+    }
 
-        return { question, card };
+    // get a random card (that isn't due) for review
+    async getRandomOldCard(): Promise<{ question: Question; card: SM2Card; isDue: false } | null> {
+      const row = this.db.exec(
+        `SELECT q.*, c.ease_factor, c.interval_days, c.repetitions, c.next_review
+        FROM questions q
+        JOIN sm2_cards c ON q.id = c.question_id
+        ORDER BY RANDOM()
+        LIMIT 1`
+      ).toArray()[0];
+
+      if (!row) return null;
+      return { ...this.rowToQuestionCard(row), isDue: false };
     }
 
     // evaluate user answer and update SM-2
@@ -330,6 +346,12 @@ export class QuizSession extends DurableObject<Env> {
       if (statusMatch && request.method === 'GET') {
         const materialId = statusMatch[1];
         const result = await this.getMaterialStatus(materialId);
+        return Response.json(result);
+      }
+
+      // Get random cards (for user to review past finished due cards)
+      if (url.pathname === '/random-question' && request.method === 'GET') {
+        const result = await this.getRandomOldCard();
         return Response.json(result);
       }
 
