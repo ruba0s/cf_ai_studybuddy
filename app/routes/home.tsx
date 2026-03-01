@@ -7,7 +7,7 @@ import { useState } from "react";
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Study Buddy — Upload & Learn" },
-    { name: "description", content: "Upload a document and start learning with AI-powered flashcards and spaced repetition." },
+    { name: "description", content: "Upload a document and start learning with AI-powered questions and spaced repetition." },
   ];
 }
 
