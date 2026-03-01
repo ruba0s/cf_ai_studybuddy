@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { defaultCard, updateCard, isDue } from '../lib/sm2';
+import { defaultCard, updateCard } from '../lib/sm2';
 import type { SM2Card, Quality } from '../lib/sm2';
 
 const MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
@@ -10,19 +10,22 @@ export interface Env {
     DOCUMENT_PROCESSOR: Workflow;
 }
 
-interface Material {
-    id: string;
-    content: string;
-    filename: string;
-    uploadedAt: number;
-}
-
 interface Question {
     id: string;
     materialId: string;
     question: string;
     answer: string;
     difficulty: 'easy' | 'medium' | 'hard';
+}
+
+interface ProgressStats {
+  totalQuestions: number;
+  totalMaterials: number;
+  dueNow: number;
+  dueUpcoming: number;
+  masteredCount: number;
+  averageEaseFactor: number;
+  questionsByDifficulty: Record<'easy' | 'medium' | 'hard', number>;
 }
 
 export class QuizSession extends DurableObject<Env> {
@@ -80,7 +83,6 @@ export class QuizSession extends DurableObject<Env> {
       };
     }
 
-    // TODO: called by DocumentProcessor Workflow after generating questions
     async storeGeneratedQuestions(
       materialId: string,
       materialContent: string,
@@ -104,7 +106,7 @@ export class QuizSession extends DurableObject<Env> {
         // explicitly coerce all values (DO SQLite is strict about undefined)
         const difficulty = ['easy', 'medium', 'hard'].includes(q.difficulty)
           ? q.difficulty
-          : 'medium'; // default to medium for invalid difficulties
+          : 'medium';
 
         this.db.exec(
           `INSERT INTO questions (id, material_id, question, answer, difficulty) 
@@ -271,36 +273,92 @@ export class QuizSession extends DurableObject<Env> {
         return { correct, quality, feedback, updatedCard };
     }
 
-  // Progress stats
-  async getProgress(): Promise<{
-    totalQuestions: number;
-    totalMaterials: number;
-    dueNow: number;
-    averageEaseFactor: number;
-    questionsByDifficulty: Record<string, number>;
-  }> {
+  async getProgress(): Promise<ProgressStats> {
     const now = Date.now();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
-    const total = (this.db.exec(`SELECT COUNT(*) as count FROM questions`).toArray()[0]?.count as number) ?? 0;
-    const materials = (this.db.exec(`SELECT COUNT(*) as count FROM materials`).toArray()[0]?.count as number) ?? 0;
-    const due = (this.db.exec(`SELECT COUNT(*) as count FROM sm2_cards WHERE next_review <= ?`, now).toArray()[0]?.count as number) ?? 0;
-    const avgEF = (this.db.exec(`SELECT AVG(ease_factor) as avg FROM sm2_cards`).toArray()[0]?.avg as number) ?? 2.5;
+    const total = (this.db
+      .exec(`SELECT COUNT(*) as count FROM questions`)
+      .toArray()[0]?.count as number) ?? 0;
+
+    const materials = (this.db
+      .exec(`SELECT COUNT(*) as count FROM materials`)
+      .toArray()[0]?.count as number) ?? 0;
+
+    const dueNow = (this.db
+      .exec(`SELECT COUNT(*) as count FROM sm2_cards WHERE next_review <= ?`, now)
+      .toArray()[0]?.count as number) ?? 0;
+
+    // Due in the next 7 days but not already overdue/due today
+    const dueUpcoming = (this.db
+      .exec(
+        `SELECT COUNT(*) as count FROM sm2_cards WHERE next_review > ? AND next_review <= ?`,
+        now,
+        now + sevenDaysMs
+      )
+      .toArray()[0]?.count as number) ?? 0;
+
+    // "Mastered": seen at least 3 times with a healthy ease factor
+    const masteredCount = (this.db
+      .exec(
+        `SELECT COUNT(*) as count FROM sm2_cards WHERE repetitions >= 3 AND ease_factor >= 2.5`
+      )
+      .toArray()[0]?.count as number) ?? 0;
+
+    const avgEF = (this.db
+      .exec(`SELECT AVG(ease_factor) as avg FROM sm2_cards`)
+      .toArray()[0]?.avg as number) ?? 2.5;
 
     const diffRows = this.db
       .exec(`SELECT difficulty, COUNT(*) as count FROM questions GROUP BY difficulty`)
       .toArray();
 
-    const questionsByDifficulty: Record<string, number> = {};
+    const questionsByDifficulty: Record<'easy' | 'medium' | 'hard', number> = {
+      easy: 0,
+      medium: 0,
+      hard: 0,
+    };
     for (const row of diffRows) {
-      questionsByDifficulty[row.difficulty as string] = row.count as number;
+      const diff = row.difficulty as 'easy' | 'medium' | 'hard';
+      if (diff in questionsByDifficulty) {
+        questionsByDifficulty[diff] = row.count as number;
+      }
     }
 
     return {
       totalQuestions: total,
       totalMaterials: materials,
-      dueNow: due,
+      dueNow,
+      dueUpcoming,
+      masteredCount,
       averageEaseFactor: Math.round(avgEF * 100) / 100,
       questionsByDifficulty,
+    };
+  }
+
+  async getMaterialStatus(materialId: string): Promise<{
+    materialExists: boolean;
+    questionCount: number;
+    status: 'pending' | 'ready';
+  }> {
+    const materialRows = this.db
+      .exec(`SELECT id FROM materials WHERE id = ?`, materialId)
+      .toArray();
+
+    if (materialRows.length === 0) {
+      return { materialExists: false, questionCount: 0, status: 'pending' };
+    }
+
+    const countRow = this.db
+      .exec(`SELECT COUNT(*) as count FROM questions WHERE material_id = ?`, materialId)
+      .toArray()[0];
+
+    const questionCount = (countRow?.count as number) ?? 0;
+
+    return {
+      materialExists: true,
+      questionCount,
+      status: questionCount > 0 ? 'ready' : 'pending',
     };
   }
 
@@ -359,31 +417,5 @@ export class QuizSession extends DurableObject<Env> {
     } catch (err) {
       return Response.json({ error: (err as Error).message }, { status: 500 });
     }
-  }
-  
-  async getMaterialStatus(materialId: string): Promise<{
-    materialExists: boolean;
-    questionCount: number;
-    status: 'pending' | 'ready';
-  }> {
-    const materialRows = this.db
-      .exec(`SELECT id FROM materials WHERE id = ?`, materialId)
-      .toArray();
-
-    if (materialRows.length === 0) {
-      return { materialExists: false, questionCount: 0, status: 'pending' };
-    }
-
-    const countRow = this.db
-      .exec(`SELECT COUNT(*) as count FROM questions WHERE material_id = ?`, materialId)
-      .toArray()[0];
-
-    const questionCount = (countRow?.count as number) ?? 0;
-
-    return {
-      materialExists: true,
-      questionCount,
-      status: questionCount > 0 ? 'ready' : 'pending',
-    };
   }
 }
