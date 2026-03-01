@@ -10,8 +10,8 @@ html,
 body {
   background-color: #fafafa;
 
-  @media (prefers-color-scheme: dark) {
+  /* @media (prefers-color-scheme: dark) {
     color-scheme: dark;
     background-color: #778da9;
-  }
+  } */
 }

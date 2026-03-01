@@ -62,8 +62,6 @@ export class DocumentProcessor extends WorkflowEntrypoint<Env, DocumentProcessor
           max_tokens: 1000,
         }) as { response: unknown; tool_calls?: unknown[]; usage?: unknown };
 
-        console.log('[Workflow] Raw response JSON:', JSON.stringify(rawResponse));
-
         // parse AI response
         // The model returns questions directly as a JSON array in the response field
         const responseField = rawResponse.response;
@@ -86,18 +84,15 @@ export class DocumentProcessor extends WorkflowEntrypoint<Env, DocumentProcessor
               if (match) questionsArray = JSON.parse(match[0]);
             }
           } catch {
-            console.log('[Workflow] String parse failed:', responseField.slice(0, 100));
+            console.error('[Workflow] String parse failed:', responseField.slice(0, 100));
           }
         }
-
-        console.log('[Workflow] Questions array length:', questionsArray?.length ?? 0);
 
         if (!questionsArray) return [];
 
         const filtered = questionsArray.filter(
           (q) => q.question && q.answer && ['easy', 'medium', 'hard'].includes(q.difficulty)
         );
-        console.log('[Workflow] Filtered questions:', filtered.length);
         return filtered;
           });
 
