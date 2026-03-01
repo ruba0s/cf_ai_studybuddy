@@ -201,5 +201,3 @@ dist
 ### React Router ###
 .react-router/
 /build/
-
-PROMPTS.md
