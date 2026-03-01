@@ -1,7 +1,5 @@
-// app/routes/progress.tsx
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { api } from '../lib/api';
 import { useProgress } from '../hooks/useProgress';
 
 export function meta() {
@@ -70,14 +68,12 @@ export default function ProgressPage() {
           onClick={() => navigate('/')}
           className="px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
         >
-          Upload Material
+          Upload New Material
         </button>
       </div>
     </div>
   );
 }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 interface ProgressResponse {
   totalQuestions: number;

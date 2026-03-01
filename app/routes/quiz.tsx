@@ -1,4 +1,3 @@
-// app/routes/quiz.tsx
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuiz } from '../hooks/useQuiz';
@@ -22,6 +21,7 @@ export default function QuizPage() {
           question={quiz.currentQuestion}
           isSubmitting={quiz.status === 'submitting'}
           onSubmit={quiz.submitAnswer}
+          onViewProgress={() => navigate('/progress')}
         />
       );
     case 'showing-feedback':
@@ -79,9 +79,10 @@ interface QuestionViewProps {
   question: { id: string; question: string; difficulty: 'easy' | 'medium' | 'hard' } | null;
   isSubmitting: boolean;
   onSubmit: (answer: string) => Promise<void>;
+  onViewProgress: () => void;
 }
 
-function QuestionView({ question, isSubmitting, onSubmit }: QuestionViewProps) {
+function QuestionView({ question, isSubmitting, onSubmit, onViewProgress }: QuestionViewProps) {
   const [answer, setAnswer] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -137,6 +138,15 @@ function QuestionView({ question, isSubmitting, onSubmit }: QuestionViewProps) {
             {isSubmitting ? 'Submitting...' : 'Submit Answer'}
           </button>
         </form>
+
+        <button
+          type="button"
+          onClick={onViewProgress}
+          className="w-full mt-3 px-6 py-2 text-sm text-gray-700 bg-blue-300 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          View Progress
+        </button>
+
       </div>
     </div>
   );
