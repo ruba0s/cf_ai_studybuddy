@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router';
-import { useProgress } from '../hooks/useProgress';
+import { api } from '../lib/api';
 
 export function meta() {
   return [
@@ -9,15 +9,57 @@ export function meta() {
   ];
 }
 
+interface ProgressResponse {
+  totalQuestions: number;
+  totalMaterials: number;
+  dueNow: number;
+  dueUpcoming: number;
+  masteredCount: number;
+  averageEaseFactor: number;
+  questionsByDifficulty: Record<'easy' | 'medium' | 'hard', number>;
+}
+
+type PageStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+function normalizeDifficulties(
+  raw: Record<string, number>
+): Record<'easy' | 'medium' | 'hard', number> {
+  return {
+    easy:   raw['easy']   ?? 0,
+    medium: raw['medium'] ?? 0,
+    hard:   raw['hard']   ?? 0,
+  };
+}
+
 export default function ProgressPage() {
   const navigate = useNavigate();
-  const { status, data, errorMsg, refresh } = useProgress();
+  const [status, setStatus] = useState<PageStatus>('idle');
+  const [data, setData] = useState<ProgressResponse | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string>('');
+
+  const refresh = useCallback(async () => {
+    setStatus('loading');
+    setErrorMsg('');
+    try {
+      const raw = await api.getProgress() as ProgressResponse & {
+        questionsByDifficulty: Record<string, number>;
+      };
+      setData({
+        ...raw,
+        questionsByDifficulty: normalizeDifficulties(raw.questionsByDifficulty ?? {}),
+      });
+      setStatus('ready');
+    } catch (err) {
+      setErrorMsg((err as Error).message ?? 'Failed to load progress');
+      setStatus('error');
+    }
+  }, []);
 
   useEffect(() => {
     refresh();
   }, []);
 
-  if (status === 'loading') return <LoadingView />;
+  if (status === 'idle' || status === 'loading') return <LoadingView />;
   if (status === 'error') return <ErrorView message={errorMsg} onRetry={refresh} />;
   if (!data || data.totalQuestions === 0) return <EmptyState onUpload={() => navigate('/')} />;
 
@@ -26,19 +68,10 @@ export default function ProgressPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Progress</h1>
-        <button
-          onClick={refresh}
-          disabled={status === 'loading'}
-          className="text-sm text-blue-600 hover:underline disabled:opacity-40"
-        >
-          Refresh
-        </button>
       </div>
 
-      {/* Mastery bar */}
       <MasteryProgressBar
         masteredCount={data.masteredCount}
         totalQuestions={data.totalQuestions}
@@ -47,16 +80,13 @@ export default function ProgressPage() {
         onStartReview={() => navigate('/quiz')}
       />
 
-      {/* Stats grid */}
       <StatsGrid data={data} />
 
-      {/* Difficulty breakdown */}
       <DifficultyDistribution
         questionsByDifficulty={data.questionsByDifficulty}
         totalQuestions={data.totalQuestions}
       />
 
-      {/* Actions */}
       <div className="flex gap-3">
         <button
           onClick={() => navigate('/quiz')}
@@ -73,16 +103,6 @@ export default function ProgressPage() {
       </div>
     </div>
   );
-}
-
-interface ProgressResponse {
-  totalQuestions: number;
-  totalMaterials: number;
-  dueNow: number;
-  dueUpcoming: number;
-  masteredCount: number;
-  averageEaseFactor: number;
-  questionsByDifficulty: Record<'easy' | 'medium' | 'hard', number>;
 }
 
 function MasteryProgressBar({
@@ -153,9 +173,7 @@ function StatsGrid({ data }: { data: ProgressResponse }) {
         <div
           key={label}
           className={`rounded-xl border p-4 shadow-sm ${
-            accent
-              ? 'bg-red-50 border-red-200'
-              : 'bg-white border-gray-200'
+            accent ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'
           }`}
         >
           <div className={`text-2xl font-mono font-semibold ${accent ? 'text-red-600' : 'text-gray-900'}`}>
