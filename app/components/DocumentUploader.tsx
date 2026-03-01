@@ -7,27 +7,15 @@ interface DocumentUploadProps {
   onUploadComplete?: (materialId: string) => void;
 }
 
-const ACCEPTED_EXTENSIONS = ['.txt', '.docx'];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ACCEPTED_EXTENSIONS = ['.txt'];
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-async function readFileAsText(file: File): Promise<{ content: string; isBase64: boolean }> {
+async function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    const ext = file.name.split('.').pop()?.toLowerCase();
-
-    if (ext === 'docx') {
-      reader.onload = () => {
-        // strip the data URL prefix, keep only base64 payload
-        const base64 = (reader.result as string).split(',')[1];
-        resolve({ content: base64, isBase64: true });
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    } else {
-      reader.onload = () => resolve({ content: reader.result as string, isBase64: false });
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
-    }
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
   });
 }
 
@@ -45,21 +33,21 @@ export default function DocumentUpload({ onUploadComplete }: DocumentUploadProps
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
       setStatus('error');
-      setErrorMessage(`Unsupported file type: ${ext}. Please upload .txt or .docx`);
+      setErrorMessage(`Unsupported file type: ${ext}. Please upload .txt`);
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
       setStatus('error');
-      setErrorMessage(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 10MB.`);
+      setErrorMessage(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 5MB.`);
       return;
     }
 
     try {
       setStatus('uploading');
-      const { content, isBase64 } = await readFileAsText(file);
+      const content = await readFileAsText(file);
 
       setStatus('processing');
-      const result = await api.upload(file.name, content, isBase64);
+      const result = await api.upload(file.name, content);
 
       if (result.status === 'processing') {
         setStatus('success');
@@ -101,14 +89,14 @@ export default function DocumentUpload({ onUploadComplete }: DocumentUploadProps
         <StatusIcon status={status} />
         <StatusMessage status={status} errorMessage={errorMessage} />
         {status === 'idle' && (
-          <p className="text-xs text-gray-400">.txt or .docx · max 10MB</p>
+          <p className="text-xs text-gray-400">.txt · max 10MB</p>
         )}
       </div>
 
       <input
         ref={inputRef}
         type="file"
-        accept=".txt,.docx"
+        accept=".txt"
         className="hidden"
         onChange={handleInputChange}
         disabled={isDisabled}

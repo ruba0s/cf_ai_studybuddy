@@ -4,7 +4,6 @@ import { cors } from 'hono/cors';
 import { QuizSession } from './durable-objects/QuizSession';
 import { DocumentProcessor } from './workflows/DocumentProcessor';
 import { createRequestHandler } from "react-router";
-import mammoth from 'mammoth';
 
 export { QuizSession, DocumentProcessor };  // required for Cloudflare to find them
 
@@ -35,38 +34,15 @@ app.post('/api/upload', async (c) => {
     const sessionId = c.req.header('x-session-id');
     if (!sessionId) return c.json({ error: 'Missing x-session-id' }, 400);
 
-    const { filename, content, isBase64 } = await c.req.json<{
+    const { filename, content } = await c.req.json<{
       filename: string;
       content: string;
-      isBase64: boolean;
     }>();
 
     if (!content?.trim()) return c.json({ error: 'No content provided' }, 400);
 
     let extractedText: string;
-
-    if (isBase64) {
-      const ext = filename.split('.').pop()?.toLowerCase();
-      if (ext !== 'docx') {
-        return c.json({ error: 'Base64 upload only supported for .docx' }, 400);
-      }
-
-      // Decode base64 → ArrayBuffer
-      const binaryStr = atob(content);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-
-      const result = await mammoth.extractRawText({ arrayBuffer: bytes.buffer });
-      extractedText = result.value?.trim();
-
-      if (!extractedText) {
-        return c.json({ error: 'Could not extract text from DOCX' }, 422);
-      }
-    } else {
-      extractedText = content;
-    }
+    extractedText = content;
 
     const materialId = crypto.randomUUID();
 

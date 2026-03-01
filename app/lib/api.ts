@@ -8,14 +8,14 @@ const getSessionId = (): string => {
 };
 
 export const api = {
-  upload: async (filename: string, content: string, isBase64: boolean) => {
+  upload: async (filename: string, content: string) => {
     const res = await fetch('/api/upload', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-session-id': getSessionId(),
       },
-      body: JSON.stringify({ filename, content, isBase64 }),
+      body: JSON.stringify({ filename, content }),
     });
     const data = await res.json() as { materialId?: string; status?: string; error?: string };
     if (!res.ok) throw new Error(data.error ?? `Upload failed (${res.status})`);
